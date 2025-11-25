@@ -12,7 +12,8 @@
     button{background:#00ff9d;color:#000;padding:14px 28px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:16px}
     input{padding:12px;margin:8px 0;width:100%;border-radius:8px;border:none;font-size:16px}
     .contest{background:#16213e;padding:18px;margin:15px 0;border-radius:12px}
-    #error {color: red; text-align: center; margin: 10px;}
+    #error {color: red; text-align: center; margin: 10px; font-weight: bold;}
+    #status {color: #00ff9d; text-align: center; margin: 10px;}
   </style>
 </head>
 <body>
@@ -20,6 +21,7 @@
   <div class="card">
     <button onclick="connect()">Connect Wallet</button>
     <p id="account" style="margin-top:15px"></p>
+    <p id="status"></p>
     <p id="error" style="display:none"></p>
   </div>
 
@@ -48,48 +50,77 @@
     ];
     let provider, signer, contract, account;
 
+    // Add Base chain if not present
+    const addBaseChain = async () => {
+      try {
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: '0x2105', // Base Chain ID 8453 in hex
+            chainName: 'Base Mainnet',
+            nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+            rpcUrls: ['https://mainnet.base.org'],
+            blockExplorerUrls: ['https://basescan.org']
+          }]
+        });
+      } catch (error) {
+        console.log('Base already added or user rejected');
+      }
+    };
+
     async function connect() {
       try {
+        document.getElementById("error").style.display = "none";
+        document.getElementById("status").innerHTML = "Connecting...";
+
         if (!window.ethereum) throw new Error("No wallet detected – install MetaMask or Coinbase Wallet!");
-        
+
         provider = new ethers.providers.Web3Provider(window.ethereum);
         
+        // Add Base if not present
+        await addBaseChain();
+
         // Request accounts
         await provider.send("eth_requestAccounts", []);
+
+        // Get signer with account
+        signer = provider.getSigner();
+        account = await signer.getAddress();
         
-        // Get accounts (v5.7 fix for some wallets)
-        const accounts = await provider.listAccounts();
-        if (accounts.length === 0) throw new Error("No accounts found – unlock your wallet!");
-        
-        account = accounts[0];
-        signer = provider.getSigner(account);
         contract = new ethers.Contract(contractAddress, ABI, signer);
         
-        // Switch to Base if not already
+        // Switch to Base
         await window.ethereum.request({
           method: 'wallet_switchEthereumChain',
-          params: [{ chainId: '0x2105' }] // Base Chain ID 8453 in hex
+          params: [{ chainId: '0x2105' }]
         });
-        
+
         document.getElementById("account").innerHTML = "Connected: " + account.slice(0,10) + "...";
-        document.getElementById("error").style.display = "none";
+        document.getElementById("status").innerHTML = "On Base – Ready to play!";
         loadContests();
       } catch (error) {
         console.error(error);
-        document.getElementById("error").innerHTML = "Error: " + error.message;
+        document.getElementById("error").innerHTML = "Connect error: " + error.message;
         document.getElementById("error").style.display = "block";
+        document.getElementById("status").innerHTML = "";
       }
     }
 
     async function create() {
       try {
+        if (!contract) throw new Error("Connect wallet first!");
+        
         const name = document.getElementById("name").value || "Untitled Contest";
         const fee = ethers.utils.parseEther(document.getElementById("fee").value || "100");
         const cap = document.getElementById("cap").value;
         const max = document.getElementById("max").value;
         const hours = document.getElementById("hours").value;
         const end = Math.floor(Date.now()/1000) + (hours*3600);
-        await contract.createContest(name, fee, cap, max, end);
+        
+        const tx = await contract.createContest(name, fee, cap, max, end);
+        document.getElementById("status").innerHTML = "Creating contest... Tx: " + tx.hash;
+        await tx.wait();
+        document.getElementById("status").innerHTML = "Contest created! Refreshing...";
         loadContests();
       } catch (error) {
         document.getElementById("error").innerHTML = "Create error: " + error.message;
@@ -122,9 +153,17 @@
 
     async function enter(id) {
       try {
-        const playerIds = prompt("Enter 8–12 player IDs (comma separated, e.g. 101,202,303,404,505,606,707,808)").split(",").map(x=>parseInt(x.trim()));
+        if (!contract) throw new Error("Connect wallet first!");
+        
+        const playerIdsStr = prompt("Enter 8–12 player IDs (comma separated, e.g. 101,202,303,404,505,606,707,808)");
+        const playerIds = playerIdsStr.split(",").map(x => parseInt(x.trim()));
         const totalSalary = prompt("Total salary of your lineup?");
-        await contract.enterContest(id, playerIds, totalSalary);
+        
+        const tx = await contract.enterContest(id, playerIds, totalSalary);
+        document.getElementById("status").innerHTML = "Entering contest... Tx: " + tx.hash;
+        await tx.wait();
+        document.getElementById("status").innerHTML = "Entry submitted! Refreshing...";
+        loadContests();
       } catch (error) {
         document.getElementById("error").innerHTML = "Enter error: " + error.message;
         document.getElementById("error").style.display = "block";
