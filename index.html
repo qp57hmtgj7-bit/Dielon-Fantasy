@@ -4,127 +4,130 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>$DIELON Fantasy</title>
-  <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+  <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js" type="text/javascript"></script>
   <style>
-    body{font-family:Arial;background:#0f0f1a;color:#fff;margin:0;padding:20px}
-    h1{color:#00ff9d;text-align:center;margin:30px 0}
+    body{font-family:Arial;background:#0f0f1a;color:#fff;margin:0;padding:20px;text-align:center}
+    h1{color:#00ff9d;margin:30px 0}
     .card{background:#1a1a2e;padding:25px;margin:20px auto;max-width:600px;border-radius:15px;box-shadow:0 0 20px #00ff9d33}
-    button{background:#00ff9d;color:#000;padding:14px 28px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:16px}
-    input{padding:12px;margin:8px 0;width:100%;border-radius:8px;border:none;font-size:16px}
-    .contest{background:#16213e;padding:18px;margin:15px 0;border-radius:12px}
-    #error {color: red; text-align: center; margin: 10px; font-weight: bold;}
-    #status {color: #00ff9d; text-align: center; margin: 10px;}
+    button{background:#00ff9d;color:#000;padding:14px 28px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:16px;margin:10px}
+    input{padding:12px;margin:8px 0;width:90%;max-width:400px;border-radius:8px;border:none;font-size:16px}
+    .contest{background:#16213e;padding:18px;margin:15px auto;max-width:600px;border-radius:12px}
+    #status{color:#00ff9d;margin:15px;font-weight:bold}
+    #error{color:#ff0066;margin:15px;font-weight:bold}
   </style>
 </head>
 <body>
   <h1>$DIELON Fantasy</h1>
   <div class="card">
     <button onclick="connect()">Connect Wallet</button>
-    <p id="account" style="margin-top:15px"></p>
+    <p id="account"></p>
     <p id="status"></p>
-    <p id="error" style="display:none"></p>
+    <p id="error"></p>
   </div>
 
   <div class="card">
     <h2>Create Contest</h2>
     <input id="name" placeholder="Contest Name (e.g. NFL Week 12)" />
-    <input id="fee" placeholder="Entry Fee in $DIELON (e.g. 100)" type="number" />
-    <input id="cap" placeholder="Salary Cap (e.g. 50000)" value="50000" type="number" />
-    <input id="max" placeholder="Max Players (e.g. 50)" value="50" type="number" />
-    <input id="hours" placeholder="Hours until end (e.g. 48)" value="48" type="number" />
+    <input id="fee" placeholder="Entry Fee in $DIELON (e.g. 100)" type="number" value="100" />
+    <input id="cap" placeholder="Salary Cap (e.g. 50000)" type="number" value="50000" />
+    <input id="max" placeholder="Max Players (e.g. 50)" type="number" value="50" />
+    <input id="hours" placeholder="Hours until end (e.g. 48)" type="number" value="48" />
     <button onclick="create()">Create Contest</button>
   </div>
 
   <div id="contests"></div>
 
   <script>
+    // Check if ethers loaded
+    if (typeof ethers === 'undefined') {
+      document.getElementById("error").innerHTML = "Ethers library failed to load – try disabling ad blocker or refresh.";
+      document.getElementById("error").style.display = "block";
+    }
+
     const contractAddress = "0x4b11ddaadc173d24ce8d35af11341fb83762bb0ed90f9a4979c8145573369e2e";
+    const BASE_CHAIN_ID = "0x2105"; // Base hex
+
     const ABI = [
-      "function contests(uint256) view returns (string name, uint256 entryFee, uint256 salaryCap, uint256 maxEntries, uint256 totalEntries, uint256 prizePool, uint256 contestEndTime, bool settled, address[] entrants)",
+      "function contests(uint256) view returns (string name, uint256 entryFee, uint256 salaryCap, uint256 maxEntries, uint256 totalEntries, uint256 prizePool, uint256 contestEndTime, bool settled, address[])",
       "function createContest(string name, uint256 entryFee, uint256 salaryCap, uint256 maxEntries, uint256 contestEndTime)",
-      "function enterContest(uint256 contestId, uint256[] playerIds, uint256 totalSalary)",
-      "function settleContest(uint256 contestId, address[3] winners)",
-      "event ContestCreated(uint256 indexed id, string name, uint256 entryFee, uint256 endTime)",
-      "event Entered(uint256 indexed contestId, address player)",
-      "event ContestSettled(uint256 indexed contestId, address[3] winners, uint256[3] prizes)"
+      "function enterContest(uint256 contestId, uint256[] playerIds, uint256 totalSalary)"
     ];
+
     let provider, signer, contract, account;
 
-    // Add Base chain if not present
-    const addBaseChain = async () => {
-      try {
-        await window.ethereum.request({
-          method: 'wallet_addEthereumChain',
-          params: [{
-            chainId: '0x2105', // Base Chain ID 8453 in hex
-            chainName: 'Base Mainnet',
-            nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-            rpcUrls: ['https://mainnet.base.org'],
-            blockExplorerUrls: ['https://basescan.org']
-          }]
-        });
-      } catch (error) {
-        console.log('Base already added or user rejected');
-      }
-    };
-
     async function connect() {
+      document.getElementById("error").innerHTML = "";
+      document.getElementById("status").innerHTML = "Connecting...";
+
+      if (typeof ethers === 'undefined') {
+        document.getElementById("error").innerHTML = "Ethers not loaded – refresh page or disable ad blocker.";
+        return;
+      }
+
+      if (!window.ethereum) {
+        document.getElementById("error").innerHTML = "No wallet found – install MetaMask or Coinbase Wallet.";
+        return;
+      }
+
       try {
-        document.getElementById("error").style.display = "none";
-        document.getElementById("status").innerHTML = "Connecting...";
-
-        if (!window.ethereum) throw new Error("No wallet detected – install MetaMask or Coinbase Wallet!");
-
         provider = new ethers.providers.Web3Provider(window.ethereum);
         
-        // Add Base if not present
-        await addBaseChain();
-
         // Request accounts
-        await provider.send("eth_requestAccounts", []);
-
-        // Get signer with account
+        const accounts = await provider.send("eth_requestAccounts", []);
+        if (accounts.length === 0) throw new Error("No accounts – unlock wallet.");
+        
+        account = accounts[0];
         signer = provider.getSigner();
-        account = await signer.getAddress();
-        
         contract = new ethers.Contract(contractAddress, ABI, signer);
-        
-        // Switch to Base
-        await window.ethereum.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: '0x2105' }]
-        });
+
+        // Add Base if missing, then switch
+        try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: BASE_CHAIN_ID }]
+          });
+        } catch (switchError) {
+          if (switchError.code === 4902) {
+            await window.ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [{
+                chainId: BASE_CHAIN_ID,
+                chainName: 'Base Mainnet',
+                nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+                rpcUrls: ['https://mainnet.base.org'],
+                blockExplorerUrls: ['https://basescan.org']
+              }]
+            });
+          } else {
+            throw switchError;
+          }
+        }
 
         document.getElementById("account").innerHTML = "Connected: " + account.slice(0,10) + "...";
-        document.getElementById("status").innerHTML = "On Base – Ready to play!";
+        document.getElementById("status").innerHTML = "On Base – Ready!";
         loadContests();
-      } catch (error) {
-        console.error(error);
-        document.getElementById("error").innerHTML = "Connect error: " + error.message;
-        document.getElementById("error").style.display = "block";
-        document.getElementById("status").innerHTML = "";
+      } catch (err) {
+        document.getElementById("error").innerHTML = "Connect error: " + err.message;
       }
     }
 
     async function create() {
+      if (!contract) return document.getElementById("error").innerHTML = "Connect wallet first!";
+
+      const name = document.getElementById("name").value || "Untitled Contest";
+      const fee = ethers.utils.parseEther(document.getElementById("fee").value || "100");
+      const cap = document.getElementById("cap").value;
+      const max = document.getElementById("max").value;
+      const end = Math.floor(Date.now()/1000) + (document.getElementById("hours").value * 3600);
+
       try {
-        if (!contract) throw new Error("Connect wallet first!");
-        
-        const name = document.getElementById("name").value || "Untitled Contest";
-        const fee = ethers.utils.parseEther(document.getElementById("fee").value || "100");
-        const cap = document.getElementById("cap").value;
-        const max = document.getElementById("max").value;
-        const hours = document.getElementById("hours").value;
-        const end = Math.floor(Date.now()/1000) + (hours*3600);
-        
+        document.getElementById("status").innerHTML = "Creating...";
         const tx = await contract.createContest(name, fee, cap, max, end);
-        document.getElementById("status").innerHTML = "Creating contest... Tx: " + tx.hash;
         await tx.wait();
-        document.getElementById("status").innerHTML = "Contest created! Refreshing...";
+        document.getElementById("status").innerHTML = "Contest created!";
         loadContests();
-      } catch (error) {
-        document.getElementById("error").innerHTML = "Create error: " + error.message;
-        document.getElementById("error").style.display = "block";
+      } catch (err) {
+        document.getElementById("error").innerHTML = "Create error: " + err.message;
       }
     }
 
@@ -138,39 +141,25 @@
           if(c.settled) continue;
           html += `<div class="contest">
             <strong>${c.name}</strong><br>
-            Entry: ${ethers.utils.formatEther(c.entryFee)} $DIELON | 
-            Cap: ${c.salaryCap} | 
-            ${c.totalEntries.toString()}/${c.maxEntries.toString()} players<br>
+            Entry: ${ethers.utils.formatEther(c.entryFee)} $DIELON | Cap: ${c.salaryCap} | 
+            Players: ${c.totalEntries}/${c.maxEntries}<br>
             Prize Pool: ${ethers.utils.formatEther(c.prizePool)} $DIELON
-            <button onclick="enter(${i})">Enter Contest ${i}</button>
+            <button onclick="enter(${i})">Enter #${i}</button>
           </div>`;
         }
-        document.getElementById("contests").innerHTML = html || "<p>No active contests yet – create one!</p>";
-      } catch (error) {
-        console.error(error);
-      }
+        document.getElementById("contests").innerHTML = html || "<p>No contests – create one!</p>";
+      } catch (e) { console.error(e); }
     }
 
-    async function enter(id) {
-      try {
-        if (!contract) throw new Error("Connect wallet first!");
-        
-        const playerIdsStr = prompt("Enter 8–12 player IDs (comma separated, e.g. 101,202,303,404,505,606,707,808)");
-        const playerIds = playerIdsStr.split(",").map(x => parseInt(x.trim()));
-        const totalSalary = prompt("Total salary of your lineup?");
-        
-        const tx = await contract.enterContest(id, playerIds, totalSalary);
-        document.getElementById("status").innerHTML = "Entering contest... Tx: " + tx.hash;
-        await tx.wait();
-        document.getElementById("status").innerHTML = "Entry submitted! Refreshing...";
-        loadContests();
-      } catch (error) {
-        document.getElementById("error").innerHTML = "Enter error: " + error.message;
-        document.getElementById("error").style.display = "block";
-      }
+    function enter(id) {
+      if (!contract) return document.getElementById("error").innerHTML = "Connect wallet first!";
+      const idsStr = prompt("Player IDs (comma separated, e.g. 101,202,303,404,505,606,707,808)");
+      const ids = idsStr.split(",").map(x => parseInt(x.trim()));
+      const salary = prompt("Total salary?");
+      contract.enterContest(id, ids, salary).catch(e => document.getElementById("error").innerHTML = "Enter error: " + e.message);
     }
 
-    setInterval(loadContests, 10000);
+    setInterval(() => { if(contract) loadContests(); }, 15000);
   </script>
 </body>
 </html>
