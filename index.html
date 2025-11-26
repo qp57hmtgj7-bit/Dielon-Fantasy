@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>$DIELON Fantasy</title>
+  <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js" type="application/javascript"></script>
   <style>
     body{font-family:Arial;background:#0f0f1a;color:#fff;margin:0;padding:20px;text-align:center}
     h1{color:#00ff9d;margin:30px 0}
@@ -16,7 +17,7 @@
   </style>
 </head>
 <body>
-  <h1>$DIELON DFS Fantasy</h1>
+  <h1>$DIELON Fantasy</h1>
   <div class="card">
     <button onclick="connect()">Connect Wallet</button>
     <p id="account"></p>
@@ -36,15 +37,20 @@
 
   <div id="contests"></div>
 
-  <!-- Embedded Ethers v5.2 UMD (minified from official release – no CDN, always works) -->
   <script>
-    (function(){var e={version:"5.2.0",utils:{...},providers:{Web3Provider:function(e){this.ethereum=e;},...},...};window.ethers=e;})();
-    // Full minified bundle would be here, but for brevity, assume it's embedded – in practice, paste the full minified from https://cdn.ethers.io/lib/ethers-5.2.umd.min.js
-    // Note: For the full embedded version, download from https://cdn.ethers.io/lib/ethers-5.2.umd.min.js and paste the entire minified script inside <script> tags above.
-  </script>
-  <script>
+    // Wait for ethers to load before enabling buttons
+    window.addEventListener('load', () => {
+      if (typeof ethers === 'undefined') {
+        document.getElementById("error").innerHTML = "Ethers library failed to load. Try incognito mode or disable ad blocker.";
+        document.getElementById("error").style.display = "block";
+        return;
+      }
+      console.log("Ethers loaded: v5.2");
+      document.getElementById("status").innerHTML = "Library loaded – ready to connect!";
+    });
+
     const contractAddress = "0x4b11ddaadc173d24ce8d35af11341fb83762bb0ed90f9a4979c8145573369e2e";
-    const BASE_CHAIN_ID = "0x2105";
+    const BASE_CHAIN_ID = "0x2105"; // Base hex
 
     const ABI = [
       "function contests(uint256) view returns (string name, uint256 entryFee, uint256 salaryCap, uint256 maxEntries, uint256 totalEntries, uint256 prizePool, uint256 contestEndTime, bool settled, address[])",
@@ -56,7 +62,7 @@
 
     async function connect() {
       if (typeof ethers === 'undefined') {
-        document.getElementById("error").innerHTML = "Ethers not loaded – refresh in incognito.";
+        document.getElementById("error").innerHTML = "Ethers not loaded – refresh page.";
         return;
       }
 
@@ -64,7 +70,7 @@
       document.getElementById("status").innerHTML = "Connecting...";
 
       if (!window.ethereum) {
-        document.getElementById("error").innerHTML = "No wallet – install MetaMask or Coinbase Wallet.";
+        document.getElementById("error").innerHTML = "No wallet found – install MetaMask or Coinbase Wallet.";
         return;
       }
 
@@ -107,8 +113,54 @@
       }
     }
 
-    // ... (rest of the functions – loadContests, create, enter – same as previous version)
-    // To keep this response concise, paste the full from before, but add the load check at the top of connect.
+    async function create() {
+      if (!contract) return document.getElementById("error").innerHTML = "Connect wallet first!";
+      const name = document.getElementById("name").value || "Contest";
+      const fee = ethers.utils.parseEther(document.getElementById("fee").value);
+      const cap = document.getElementById("cap").value;
+      const max = document.getElementById("max").value;
+      const end = Math.floor(Date.now()/1000) + (document.getElementById("hours").value * 3600);
+
+      try {
+        const tx = await contract.createContest(name, fee, cap, max, end);
+        document.getElementById("status").innerHTML = "Creating...";
+        await tx.wait();
+        document.getElementById("status").innerHTML = "Contest created!";
+        loadContests();
+      } catch (err) {
+        document.getElementById("error").innerHTML = "Create error: " + err.message;
+      }
+    }
+
+    async function loadContests() {
+      if (!contract) return;
+      try {
+        const len = await contract.contests.length;
+        let html = "<h2>Active Contests</h2>";
+        for(let i = 0; i < len; i++) {
+          const c = await contract.contests(i);
+          if(c.settled) continue;
+          html += `<div class="contest">
+            <strong>${c.name}</strong><br>
+            Entry: ${ethers.utils.formatEther(c.entryFee)} $DIELON | Cap: ${c.salaryCap} | 
+            Players: ${c.totalEntries}/${c.maxEntries}<br>
+            Prize Pool: ${ethers.utils.formatEther(c.prizePool)} $DIELON
+            <button onclick="enter(${i})">Enter #${i}</button>
+          </div>`;
+        }
+        document.getElementById("contests").innerHTML = html || "<p>No contests – create one!</p>";
+      } catch (e) { console.error(e); }
+    }
+
+    function enter(id) {
+      if (!contract) return document.getElementById("error").innerHTML = "Connect wallet first!";
+      const idsStr = prompt("Player IDs (comma separated, e.g. 101,202,303,404,505,606,707,808)");
+      const ids = idsStr.split(",").map(x => parseInt(x.trim()));
+      const salary = prompt("Total salary?");
+      contract.enterContest(id, ids, salary).catch(e => document.getElementById("error").innerHTML = "Enter error: " + e.message);
+    }
+
+    setInterval(() => { if(contract) loadContests(); }, 15000);
   </script>
 </body>
 </html>
