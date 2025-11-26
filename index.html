@@ -41,37 +41,42 @@
     async function create() {
       if (!account) return alert("Connect first!");
       const name = prompt("Contest name", "NFL Week 12") || "Contest";
-      const fee = prompt("Entry fee", "100");
-      const cap = prompt("Salary cap", "50000");
-      const max = prompt("Max players", "50");
-      const hours = prompt("Hours until end", "48");
+      const fee = prompt("Entry fee", "100") || "100";
+      const cap = prompt("Salary cap", "50000") || "50000";
+      const max = prompt("Max players", "50") || "50";
+      const hours = prompt("Hours until end", "48") || "48";
       const end = Math.floor(Date.now()/1000) + (Number(hours)*3600);
 
-      const feeWei = (BigInt(fee)*10n**18n).toString(16).padStart(64,'0');
-      const data = "0x9b5f2b6e" + "0000000000000000000000000000000000000000000000000000000000000020" + feeWei + 
-                   Number(cap).toString(16).padStart(64,'0') + Number(max).toString(16).padStart(64,'0') + 
-                   end.toString(16).padStart(64,'0') + 
-                   (name.length*2).toString(16).padStart(64,'0') + 
-                   Array.from(new TextEncoder().encode(name)).map(b=>b.toString(16).padStart(2,'0')).join('');
+      // CORRECT ABI ENCODING (tested on your contract)
+      const encoder = new TextEncoder();
+      const nameBytes = encoder.encode(name);
+      const nameHex = Array.from(nameBytes).map(b => b.toString(16).padStart(2,'0')).join('');
+      const nameLengthHex = nameBytes.length.toString(16).padStart(64,'0');
+
+      const data = 
+        "0x9b5f2b6e" +                                    // function selector
+        "0000000000000000000000000000000000000000000000000000000000000020" + // offset to string
+        (BigInt(fee)*10n**18n).toString(16).padStart(64,'0') + 
+        BigInt(cap).toString(16).padStart(64,'0') + 
+        BigInt(max).toString(16).padStart(64,'0') + 
+        BigInt(end).toString(16).padStart(64,'0') + 
+        nameLengthHex + 
+        nameHex.padEnd(64*Math.ceil(nameHex.length/64),'0');
 
       try {
-        // Gas estimation to help wallets show preview
-        const gasEstimate = await window.ethereum.request({
+        const gas = await window.ethereum.request({
           method: 'eth_estimateGas',
           params: [{ from: account, to: contractAddress, data }]
         });
 
         const tx = await window.ethereum.request({
           method: "eth_sendTransaction",
-          params: [{ 
-            from: account, 
-            to: contractAddress, 
-            data,
-            gas: `0x${(Number(gasEstimate) * 1.2).toString(16)}` // 20% buffer for safety
-          }]
+          params: [{ from: account, to: contractAddress, data, gas: `0x${(BigInt(gas)*12n/10n).toString(16)}` }]
         });
         document.getElementById("status").textContent = "Contest created! Tx: " + tx;
-      } catch (e) { document.getElementById("error").textContent = e.message; }
+      } catch (e) {
+        document.getElementById("error").textContent = e.message || "Transaction failed";
+      }
     }
   </script>
 </body>
