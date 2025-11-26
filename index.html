@@ -4,51 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>$DIELON Fantasy</title>
-  <script type="module">
-    import { createWalletClient, custom } from 'https://cdn.jsdelivr.net/npm/viem@2.7.0/+esm'
-    import { base } from 'https://cdn.jsdelivr.net/npm/viem/chains@2.7.0/+esm'
-
-    const contractAddress = "0x4b11ddaadc173d24ce8d35af11341fb83762bb0ed90f9a4979c8145573369e2e"
-    const ABI = [
-      "function contests(uint256) view returns (string name, uint256 entryFee, uint256 salaryCap, uint256 maxEntries, uint256 totalEntries, uint256 prizePool, uint256 contestEndTime, bool settled, address[])",
-      "function createContest(string name, uint256 entryFee, uint256 salaryCap, uint256 maxEntries, uint256 contestEndTime)",
-      "function enterContest(uint256 contestId, uint256[] playerIds, uint256 totalSalary)"
-    ]
-
-    let client, account
-
-    window.connect = async () => {
-      if (!window.ethereum) return alert("Install MetaMask!")
-      client = createWalletClient({ chain: base, transport: custom(window.ethereum) })
-      const [addr] = await client.requestAddresses()
-      account = addr
-      document.getElementById("status").textContent = "Connected: " + addr.slice(0,10) + "... on Base"
-    }
-
-    window.create = async () => {
-      if (!account) return alert("Connect wallet first!")
-      const name = prompt("Contest name", "NFL Week 12") || "Contest"
-      const fee = prompt("Entry fee in $DIELON", "100")
-      const cap = prompt("Salary cap", "50000")
-      const max = prompt("Max players", "50")
-      const hours = prompt("Hours until end", "48")
-      const end = Math.floor(Date.now()/1000) + (Number(hours) * 3600)
-
-      await client.writeContract({
-        address: contractAddress,
-        abi: ABI,
-        functionName: 'createContest',
-        args: [name, BigInt(fee)*10n**18n, Number(cap), Number(max), end],
-        account
-      })
-      alert("Contest created!")
-    }
-  </script>
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
   <style>
     body{background:#0f0f1a;color:#fff;font-family:Arial;text-align:center;padding:40px}
     h1{color:#00ff9d}
     button{background:#00ff9d;color:#000;padding:15px 30px;border:none;border-radius:10px;font-size:18px;margin:10px;cursor:pointer}
     #status{color:#00ff9d;margin:20px;font-weight:bold}
+    #error{color:#ff0066;margin:20px;font-weight:bold}
+    input{padding:12px;margin:10px;width:80%;max-width:400px;border-radius:8px;border:none}
   </style>
 </head>
 <body>
@@ -56,5 +19,83 @@
   <button onclick="connect()">Connect Wallet</button>
   <button onclick="create()">Create Contest</button>
   <p id="status"></p>
+  <p id="error"></p>
+
+  <script>
+    const contractAddress = "0x4b11ddaadc173d24ce8d35af11341fb83762bb0ed90f9a4979c8145573369e2e";
+    const BASE_CHAIN_ID = 8453; // Base decimal
+
+    const ABI = [
+      "function contests(uint256) view returns (string, uint256, uint256, uint256, uint256, uint256, uint256, bool, address[])",
+      "function createContest(string name, uint256 entryFee, uint256 salaryCap, uint256 maxEntries, uint256 contestEndTime)"
+    ];
+
+    let web3, account;
+
+    async function connect() {
+      if (typeof web3 === 'undefined') {
+        document.getElementById("error").innerHTML = "Web3 not loaded – refresh page.";
+        return;
+      }
+
+      document.getElementById("error").innerHTML = "";
+      document.getElementById("status").innerHTML = "Connecting...";
+
+      if (typeof window.ethereum !== 'undefined') {
+        web3 = new Web3(window.ethereum);
+        try {
+          await window.ethereum.request({ method: 'eth_requestAccounts' });
+          const accounts = await web3.eth.getAccounts();
+          account = accounts[0];
+
+          // Switch to Base
+          try {
+            await window.ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: '0x2105' }]
+            });
+          } catch (switchError) {
+            if (switchError.code === 4902) {
+              await window.ethereum.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                  chainId: '0x2105',
+                  chainName: 'Base Mainnet',
+                  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+                  rpcUrls: ['https://mainnet.base.org'],
+                  blockExplorerUrls: ['https://basescan.org']
+                }]
+              });
+            }
+          }
+
+          document.getElementById("status").innerHTML = "Connected: " + account.slice(0,10) + "... on Base";
+        } catch (err) {
+          document.getElementById("error").innerHTML = "Error: " + err.message;
+        }
+      } else {
+        document.getElementById("error").innerHTML = "Install MetaMask or Coinbase Wallet!";
+      }
+    }
+
+    async function create() {
+      if (!account) return document.getElementById("error").innerHTML = "Connect wallet first!";
+      const name = prompt("Contest name", "NFL Week 12") || "Contest";
+      const fee = prompt("Entry fee in $DIELON", "100");
+      const cap = prompt("Salary cap", "50000");
+      const max = prompt("Max players", "50");
+      const hours = prompt("Hours until end", "48");
+      const end = Math.floor(Date.now()/1000) + (Number(hours) * 3600);
+
+      try {
+        document.getElementById("status").innerHTML = "Creating...";
+        const contract = new web3.eth.Contract(ABI, contractAddress);
+        const tx = await contract.methods.createContest(name, web3.utils.toWei(fee, 'ether'), cap, max, end).send({ from: account });
+        document.getElementById("status").innerHTML = "Contest created! Tx: " + tx.transactionHash;
+      } catch (err) {
+        document.getElementById("error").innerHTML = "Error: " + err.message;
+      }
+    }
+  </script>
 </body>
 </html>
