@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>$DIELON Fantasy</title>
-  <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+  <!-- This CDN never fails — unpkg is rock-solid -->
+  <script src="https://unpkg.com/web3@1.10.0/dist/web3.min.js"></script>
   <style>
     body{background:#0f0f1a;color:#fff;font-family:Arial;text-align:center;padding:40px}
     h1{color:#00ff9d}
     button{background:#00ff9d;color:#000;padding:15px 30px;border:none;border-radius:10px;font-size:18px;margin:10px;cursor:pointer}
     #status{color:#00ff9d;margin:20px;font-weight:bold}
     #error{color:#ff0066;margin:20px;font-weight:bold}
-    input{padding:12px;margin:10px;width:80%;max-width:400px;border-radius:8px;border:none}
   </style>
 </head>
 <body>
@@ -22,64 +22,68 @@
   <p id="error"></p>
 
   <script>
+    // Wait for Web3 to load
+    window.addEventListener('load', () => {
+      if (typeof Web3 === 'undefined') {
+        document.getElementById("error").textContent = "Web3 failed to load – try hard refresh (Ctrl+F5)";
+      } else {
+        document.getElementById("status").textContent = "Ready – click Connect Wallet";
+      }
+    });
+
     const contractAddress = "0x4b11ddaadc173d24ce8d35af11341fb83762bb0ed90f9a4979c8145573369e2e";
-    const BASE_CHAIN_ID = 8453; // Base decimal
+    const BASE_CHAIN_ID = "0x2105";
 
     const ABI = [
-      "function contests(uint256) view returns (string, uint256, uint256, uint256, uint256, uint256, uint256, bool, address[])",
       "function createContest(string name, uint256 entryFee, uint256 salaryCap, uint256 maxEntries, uint256 contestEndTime)"
     ];
 
     let web3, account;
 
     async function connect() {
-      if (typeof web3 === 'undefined') {
-        document.getElementById("error").innerHTML = "Web3 not loaded – refresh page.";
+      document.getElementById("error").textContent = "";
+      document.getElementById("status").textContent = "Connecting...";
+
+      if (!window.ethereum) {
+        document.getElementById("error").textContent = "Install MetaMask or Coinbase Wallet!";
         return;
       }
 
-      document.getElementById("error").innerHTML = "";
-      document.getElementById("status").innerHTML = "Connecting...";
+      web3 = new Web3(window.ethereum);
+      try {
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
+        const accounts = await web3.eth.getAccounts();
+        account = accounts[0];
 
-      if (typeof window.ethereum !== 'undefined') {
-        web3 = new Web3(window.ethereum);
+        // Switch to Base
         try {
-          await window.ethereum.request({ method: 'eth_requestAccounts' });
-          const accounts = await web3.eth.getAccounts();
-          account = accounts[0];
-
-          // Switch to Base
-          try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: BASE_CHAIN_ID }]
+          });
+        } catch (e) {
+          if (e.code === 4902) {
             await window.ethereum.request({
-              method: 'wallet_switchEthereumChain',
-              params: [{ chainId: '0x2105' }]
+              method: 'wallet_addEthereumChain',
+              params: [{
+                chainId: BASE_CHAIN_ID,
+                chainName: 'Base',
+                rpcUrls: ['https://mainnet.base.org'],
+                nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                blockExplorerUrls: ['https://basescan.org']
+              }]
             });
-          } catch (switchError) {
-            if (switchError.code === 4902) {
-              await window.ethereum.request({
-                method: 'wallet_addEthereumChain',
-                params: [{
-                  chainId: '0x2105',
-                  chainName: 'Base Mainnet',
-                  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-                  rpcUrls: ['https://mainnet.base.org'],
-                  blockExplorerUrls: ['https://basescan.org']
-                }]
-              });
-            }
           }
-
-          document.getElementById("status").innerHTML = "Connected: " + account.slice(0,10) + "... on Base";
-        } catch (err) {
-          document.getElementById("error").innerHTML = "Error: " + err.message;
         }
-      } else {
-        document.getElementById("error").innerHTML = "Install MetaMask or Coinbase Wallet!";
+
+        document.getElementById("status").textContent = "Connected: " + account.slice(0,10) + "... on Base!";
+      } catch (err) {
+        document.getElementById("error").textContent = "Error: " + err.message;
       }
     }
 
     async function create() {
-      if (!account) return document.getElementById("error").innerHTML = "Connect wallet first!";
+      if (!account) return document.getElementById("error").textContent = "Connect wallet first!";
       const name = prompt("Contest name", "NFL Week 12") || "Contest";
       const fee = prompt("Entry fee in $DIELON", "100");
       const cap = prompt("Salary cap", "50000");
@@ -87,13 +91,13 @@
       const hours = prompt("Hours until end", "48");
       const end = Math.floor(Date.now()/1000) + (Number(hours) * 3600);
 
+      const contract = new web3.eth.Contract(ABI, contractAddress);
       try {
-        document.getElementById("status").innerHTML = "Creating...";
-        const contract = new web3.eth.Contract(ABI, contractAddress);
-        const tx = await contract.methods.createContest(name, web3.utils.toWei(fee, 'ether'), cap, max, end).send({ from: account });
-        document.getElementById("status").innerHTML = "Contest created! Tx: " + tx.transactionHash;
+        document.getElementById("status").textContent = "Creating contest...";
+        await contract.methods.createContest(name, web3.utils.toWei(fee, "ether"), cap, max, end).send({ from: account });
+        document.getElementById("status").textContent = "Contest created!";
       } catch (err) {
-        document.getElementById("error").innerHTML = "Error: " + err.message;
+        document.getElementById("error").textContent = "Error: " + err.message;
       }
     }
   </script>
