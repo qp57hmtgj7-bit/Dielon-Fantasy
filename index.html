@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>$DIELON Fantasy</title>
+  <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
   <style>
     body{background:#0f0f1a;color:#fff;font-family:Arial;text-align:center;padding:40px}
     h1{color:#00ff9d;font-size:3em}
@@ -26,13 +27,18 @@
     const contractAddress = "0x735FD4E8f0caDE07Bc72fB3Ea74Dc3c67D865D41";
     const BASE_CHAIN_ID = "0x2105";
 
-    let account;
+    const abi = ["function createContest(string name,uint256 entryFee,uint256 salaryCap,uint256 maxEntries,uint256 contestEndTime)"];
+    const iface = new ethers.utils.Interface(abi);
+
+    let provider, signer, account;
 
     async function connect() {
       if (!window.ethereum) return document.getElementById("error").textContent = "Install wallet!";
+      provider = new ethers.providers.Web3Provider(window.ethereum);
       try {
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        account = accounts[0];
+        await provider.send("eth_requestAccounts", []);
+        signer = provider.getSigner();
+        account = await signer.getAddress();
         await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BASE_CHAIN_ID }] });
         document.getElementById("status").textContent = "Connected: " + account.slice(0,10) + "... Ready!";
       } catch (e) { document.getElementById("error").textContent = e.message; }
@@ -43,39 +49,28 @@
       const name = prompt("Contest name", "NFL Week 12") || "Contest";
       const fee = prompt("Entry fee", "100") || "100";
       const cap = prompt("Salary cap", "50000") || "50000";
-      const max = prompt("Max players", "50") || "50";
+      const maxP = prompt("Max players", "50") || "50";
       const hours = prompt("Hours until end", "48") || "48";
       const end = Math.floor(Date.now()/1000) + (Number(hours)*3600);
 
-      // CORRECT ABI ENCODING (tested on your contract)
-      const encoder = new TextEncoder();
-      const nameBytes = encoder.encode(name);
-      const nameHex = Array.from(nameBytes).map(b => b.toString(16).padStart(2,'0')).join('');
-      const nameLengthHex = nameBytes.length.toString(16).padStart(64,'0');
-
-      const data = 
-        "0x9b5f2b6e" +                                    // function selector
-        "0000000000000000000000000000000000000000000000000000000000000020" + // offset to string
-        (BigInt(fee)*10n**18n).toString(16).padStart(64,'0') + 
-        BigInt(cap).toString(16).padStart(64,'0') + 
-        BigInt(max).toString(16).padStart(64,'0') + 
-        BigInt(end).toString(16).padStart(64,'0') + 
-        nameLengthHex + 
-        nameHex.padEnd(64*Math.ceil(nameHex.length/64),'0');
+      const data = iface.encodeFunctionData("createContest", [
+        name,
+        ethers.utils.parseEther(fee),
+        cap,
+        maxP,
+        end
+      ]);
 
       try {
-        const gas = await window.ethereum.request({
-          method: 'eth_estimateGas',
-          params: [{ from: account, to: contractAddress, data }]
+        const tx = await signer.sendTransaction({
+          to: contractAddress,
+          data: data
         });
-
-        const tx = await window.ethereum.request({
-          method: "eth_sendTransaction",
-          params: [{ from: account, to: contractAddress, data, gas: `0x${(BigInt(gas)*12n/10n).toString(16)}` }]
-        });
-        document.getElementById("status").textContent = "Contest created! Tx: " + tx;
+        document.getElementById("status").textContent = "Creating contest... Tx: " + tx.hash;
+        await tx.wait();
+        document.getElementById("status").textContent = "Contest created! Tx: " + tx.hash;
       } catch (e) {
-        document.getElementById("error").textContent = e.message || "Transaction failed";
+        document.getElementById("error").textContent = e.message || "Failed";
       }
     }
   </script>
