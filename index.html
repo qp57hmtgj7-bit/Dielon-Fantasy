@@ -4,8 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>$DIELON Fantasy</title>
-  <!-- This CDN never fails — unpkg is rock-solid -->
-  <script src="https://unpkg.com/web3@1.10.0/dist/web3.min.js"></script>
   <style>
     body{background:#0f0f1a;color:#fff;font-family:Arial;text-align:center;padding:40px}
     h1{color:#00ff9d}
@@ -22,23 +20,13 @@
   <p id="error"></p>
 
   <script>
-    // Wait for Web3 to load
-    window.addEventListener('load', () => {
-      if (typeof Web3 === 'undefined') {
-        document.getElementById("error").textContent = "Web3 failed to load – try hard refresh (Ctrl+F5)";
-      } else {
-        document.getElementById("status").textContent = "Ready – click Connect Wallet";
-      }
-    });
-
     const contractAddress = "0x4b11ddaadc173d24ce8d35af11341fb83762bb0ed90f9a4979c8145573369e2e";
     const BASE_CHAIN_ID = "0x2105";
-
     const ABI = [
       "function createContest(string name, uint256 entryFee, uint256 salaryCap, uint256 maxEntries, uint256 contestEndTime)"
     ];
 
-    let web3, account;
+    let account;
 
     async function connect() {
       document.getElementById("error").textContent = "";
@@ -49,30 +37,31 @@
         return;
       }
 
-      web3 = new Web3(window.ethereum);
       try {
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
-        const accounts = await web3.eth.getAccounts();
+        // Request accounts
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
         account = accounts[0];
 
-        // Switch to Base
+        // Add/switch to Base
         try {
           await window.ethereum.request({
             method: 'wallet_switchEthereumChain',
             params: [{ chainId: BASE_CHAIN_ID }]
           });
-        } catch (e) {
-          if (e.code === 4902) {
+        } catch (switchError) {
+          if (switchError.code === 4902) {
             await window.ethereum.request({
               method: 'wallet_addEthereumChain',
               params: [{
                 chainId: BASE_CHAIN_ID,
-                chainName: 'Base',
+                chainName: 'Base Mainnet',
+                nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
                 rpcUrls: ['https://mainnet.base.org'],
-                nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
                 blockExplorerUrls: ['https://basescan.org']
               }]
             });
+          } else {
+            throw switchError;
           }
         }
 
@@ -91,11 +80,17 @@
       const hours = prompt("Hours until end", "48");
       const end = Math.floor(Date.now()/1000) + (Number(hours) * 3600);
 
-      const contract = new web3.eth.Contract(ABI, contractAddress);
       try {
         document.getElementById("status").textContent = "Creating contest...";
-        await contract.methods.createContest(name, web3.utils.toWei(fee, "ether"), cap, max, end).send({ from: account });
-        document.getElementById("status").textContent = "Contest created!";
+        const tx = await window.ethereum.request({
+          method: 'eth_sendTransaction',
+          params: [{
+            from: account,
+            to: contractAddress,
+            data: encodeFunctionData({ abi: ABI, functionName: 'createContest', args: [name, BigInt(fee) * 10n**18n, Number(cap), Number(max), end] })
+          }]
+        });
+        document.getElementById("status").textContent = "Contest created! Tx: " + tx;
       } catch (err) {
         document.getElementById("error").textContent = "Error: " + err.message;
       }
