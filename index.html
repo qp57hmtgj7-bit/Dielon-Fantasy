@@ -55,9 +55,20 @@
                    Array.from(new TextEncoder().encode(name)).map(b=>b.toString(16).padStart(2,'0')).join('');
 
       try {
+        // Gas estimation to help wallets show preview
+        const gasEstimate = await window.ethereum.request({
+          method: 'eth_estimateGas',
+          params: [{ from: account, to: contractAddress, data }]
+        });
+
         const tx = await window.ethereum.request({
           method: "eth_sendTransaction",
-          params: [{ from: account, to: contractAddress, data }]
+          params: [{ 
+            from: account, 
+            to: contractAddress, 
+            data,
+            gas: `0x${(Number(gasEstimate) * 1.2).toString(16)}` // 20% buffer for safety
+          }]
         });
         document.getElementById("status").textContent = "Contest created! Tx: " + tx;
       } catch (e) { document.getElementById("error").textContent = e.message; }
