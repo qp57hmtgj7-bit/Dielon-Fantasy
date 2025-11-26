@@ -20,8 +20,9 @@
   <p id="error"></p>
 
   <script>
-    const contractAddress = "0x5E9563957A2E317BD07204f1C62EE9F81d83a0c6"; // ← CORRECT ADDRESS
+    const contractAddress = "0x5E9563957A2E317BD07204f1C62EE9F81d83a0c6";
     const BASE_CHAIN_ID = "0x2105";
+    const CREATE_CONTEST_SELECTOR = "0x9b5f2b6e";
 
     let account;
 
@@ -29,23 +30,34 @@
       document.getElementById("error").textContent = "";
       document.getElementById("status").textContent = "Connecting...";
 
-      if (!window.ethereum) return document.getElementById("error").textContent = "Install MetaMask/Coinbase Wallet!";
+      if (!window.ethereum) {
+        document.getElementById("error").textContent = "Install MetaMask or Coinbase Wallet!";
+        return;
+      }
 
       try {
         const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
         account = accounts[0];
 
         try {
-          await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BASE_CHAIN_ID }] });
-        } catch (e) {
-          if (e.code === 4902) {
-            await window.ethereum.request({ method: 'wallet_addEthereumChain', params: [{
-              chainId: BASE_CHAIN_ID,
-              chainName: 'Base',
-              rpcUrls: ['https://mainnet.base.org'],
-              nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-              blockExplorerUrls: ['https://basescan.org']
-            }] });
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: BASE_CHAIN_ID }]
+          });
+        } catch (switchError) {
+          if (switchError.code === 4902) {
+            await window.ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [{
+                chainId: BASE_CHAIN_ID,
+                chainName: 'Base Mainnet',
+                nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+                rpcUrls: ['https://mainnet.base.org'],
+                blockExplorerUrls: ['https://basescan.org']
+              }]
+            });
+          } else {
+            throw switchError;
           }
         }
 
@@ -57,30 +69,51 @@
 
     async function create() {
       if (!account) return document.getElementById("error").textContent = "Connect wallet first!";
+
       const name = prompt("Contest name", "NFL Week 12") || "Contest";
-      if (!name) return;
-      const fee = prompt("Entry fee in $DIELON", "100") || "100";
-      const cap = prompt("Salary cap", "50000") || "50000";
-      const max = prompt("Max players", "50") || "50";
-      const hours = prompt("Hours until end", "48") || "48";
-      const end = Math.floor(Date.now()/1000) + (Number(hours) * 3600);
+      if (name === null) return;
+      const feeStr = prompt("Entry fee in $DIELON", "100") || "100";
+      if (feeStr === null) return;
+      const fee = Number(feeStr);
+      const capStr = prompt("Salary cap", "50000") || "50000";
+      if (capStr === null) return;
+      const cap = Number(capStr);
+      const maxStr = prompt("Max players", "50") || "50";
+      if (maxStr === null) return;
+      const max = Number(maxStr);
+      const hoursStr = prompt("Hours until end", "48") || "48";
+      if (hoursStr === null) return;
+      const hours = Number(hoursStr);
+      const end = Math.floor(Date.now()/1000) + (hours * 3600);
+
+      // Encode data for createContest
+      const nameBytes = new TextEncoder().encode(name);
+      const nameHex = Array.from(nameBytes).map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0');
+      const feeWei = (BigInt(fee) * 10n**18n).toString(16).padStart(64, '0');
+      const capHex = Number(cap).toString(16).padStart(64, '0');
+      const maxHex = Number(max).toString(16).padStart(64, '0');
+      const endHex = end.toString(16).padStart(64, '0');
+      const data = CREATE_CONTEST_SELECTOR + '00'.padEnd(64, '0') + feeWei + capHex + maxHex + endHex + nameHex;
 
       try {
+        document.getElementById("status").textContent = "Estimating gas...";
+        // Gas estimation to confirm it's a contract call (fixes Coinbase error)
+        await window.ethereum.request({
+          method: 'eth_estimateGas',
+          params: [{
+            from: account,
+            to: contractAddress,
+            data: '0x' + data.slice(2)
+          }]
+        });
+
         document.getElementById("status").textContent = "Approve in wallet...";
         const tx = await window.ethereum.request({
           method: 'eth_sendTransaction',
           params: [{
             from: account,
             to: contractAddress,
-            data: `0x9b5f2b6e${ // createContest selector
-              "0".padEnd(64, "0")}${ // offset for string
-              (BigInt(fee)*10n**18n).toString(16).padStart(64,"0")}${ // fee
-              Number(cap).toString(16).padStart(64,"0")}${ // cap
-              Number(max).toString(16).padStart(64,"0")}${ // max
-              end.toString(16).padStart(64,"0")}${ // end
-              (name.length*2).toString(16).padStart(64,"0")}${ // string length
-              name.split('').map(c=>c.charCodeAt(0).toString(16).padStart(2,"0")).join("").padEnd(64,"0")
-            }`
+            data: '0x' + data.slice(2)
           }]
         });
         document.getElementById("status").textContent = "Contest created! Tx: " + tx;
