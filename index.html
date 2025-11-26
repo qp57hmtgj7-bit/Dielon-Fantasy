@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>$DIELON Fantasy</title>
-  <script src="https://unpkg.com/web3@1.10.0/dist/web3.min.js"></script>
   <style>
     body{background:#0f0f1a;color:#fff;font-family:Arial;text-align:center;padding:40px}
     h1{color:#00ff9d}
@@ -21,33 +20,13 @@
   <p id="error"></p>
 
   <script>
-    // Retry loop for Web3 load (checks every 100ms for 5 seconds)
-    let web3Loaded = false;
-    const checkWeb3 = () => {
-      if (typeof Web3 !== 'undefined' && !web3Loaded) {
-        web3Loaded = true;
-        document.getElementById("status").textContent = "Web3 loaded – ready to connect!";
-      }
-    };
-    const interval = setInterval(checkWeb3, 100);
-    setTimeout(() => clearInterval(interval), 5000);
-    if (typeof Web3 !== 'undefined') checkWeb3();
-
     const contractAddress = "0x4b11ddaadc173d24ce8d35af11341fb83762bb0ed90f9a4979c8145573369e2e";
     const BASE_CHAIN_ID = "0x2105";
+    const CREATE_CONTEST_SELECTOR = "0x9b5f2b6e"; // keccak256("createContest(string,uint256,uint256,uint256,uint256)")
 
-    const ABI = [
-      "function createContest(string name, uint256 entryFee, uint256 salaryCap, uint256 maxEntries, uint256 contestEndTime)"
-    ];
-
-    let web3, account;
+    let account;
 
     async function connect() {
-      if (typeof Web3 === 'undefined') {
-        document.getElementById("error").textContent = "Web3 still loading – wait 5 seconds or refresh.";
-        return;
-      }
-
       document.getElementById("error").textContent = "";
       document.getElementById("status").textContent = "Connecting...";
 
@@ -56,10 +35,8 @@
         return;
       }
 
-      web3 = new Web3(window.ethereum);
       try {
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
-        const accounts = await web3.eth.getAccounts();
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
         account = accounts[0];
 
         // Switch to Base
@@ -93,18 +70,50 @@
 
     async function create() {
       if (!account) return document.getElementById("error").textContent = "Connect wallet first!";
-      const name = prompt("Contest name", "NFL Week 12") || "Contest";
-      const fee = prompt("Entry fee in $DIELON", "100");
-      const cap = prompt("Salary cap", "50000");
-      const max = prompt("Max players", "50");
-      const hours = prompt("Hours until end", "48");
-      const end = Math.floor(Date.now()/1000) + (Number(hours) * 3600);
 
-      const contract = new web3.eth.Contract(ABI, contractAddress);
+      // Prompt with cancel handling
+      const name = prompt("Contest name (e.g. NFL Week 12)", "Contest");
+      if (name === null) return; // Cancelled
+
+      const feeStr = prompt("Entry fee in $DIELON (e.g. 100)", "100");
+      if (feeStr === null) return;
+      const fee = Number(feeStr);
+
+      const capStr = prompt("Salary cap (e.g. 50000)", "50000");
+      if (capStr === null) return;
+      const cap = Number(capStr);
+
+      const maxStr = prompt("Max players (e.g. 50)", "50");
+      if (maxStr === null) return;
+      const max = Number(maxStr);
+
+      const hoursStr = prompt("Hours until end (e.g. 48)", "48");
+      if (hoursStr === null) return;
+      const hours = Number(hoursStr);
+
+      const end = Math.floor(Date.now()/1000) + (hours * 3600);
+
+      // Manual ABI encoding for createContest(string,uint256,uint256,uint256,uint256)
+      const nameBytes = new TextEncoder().encode(name);
+      const namePadded = Array.from(nameBytes).map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0');
+      const feeWei = (BigInt(fee) * 10n**18n).toString(16).padStart(64, '0');
+      const capHex = Number(cap).toString(16).padStart(64, '0');
+      const maxHex = Number(max).toString(16).padStart(64, '0');
+      const endHex = end.toString(16).padStart(64, '0');
+
+      const data = CREATE_CONTEST_SELECTOR + namePadded + feeWei + capHex + maxHex + endHex;
+
       try {
-        document.getElementById("status").textContent = "Creating...";
-        await contract.methods.createContest(name, web3.utils.toWei(fee, "ether"), cap, max, end).send({ from: account });
-        document.getElementById("status").textContent = "Contest created!";
+        document.getElementById("status").textContent = "Creating contest – approve in wallet...";
+        const tx = await window.ethereum.request({
+          method: 'eth_sendTransaction',
+          params: [{
+            from: account,
+            to: contractAddress,
+            data: '0x' + data
+          }]
+        });
+        document.getElementById("status").textContent = "Contest created! Tx: " + tx;
       } catch (err) {
         document.getElementById("error").textContent = "Error: " + err.message;
       }
