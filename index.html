@@ -6,120 +6,61 @@
   <title>$DIELON Fantasy</title>
   <style>
     body{background:#0f0f1a;color:#fff;font-family:Arial;text-align:center;padding:40px}
-    h1{color:#00ff9d}
-    button{background:#00ff9d;color:#000;padding:15px 30px;border:none;border-radius:10px;font-size:18px;margin:10px;cursor:pointer}
-    #status{color:#00ff9d;margin:20px;font-weight:bold}
-    #error{color:#ff0066;margin:20px;font-weight:bold}
+    h1{color:#00ff9d;font-size:3em}
+    button{background:#00ff9d;color:#000;padding:18px 36px;border:none;border-radius:12px;font-size:20px;margin:15px;cursor:pointer}
+    #status{color:#00ff9d;margin:20px;font-size:18px}
+    #error{color:#ff3366;margin:20px}
+    .card{background:#1a1a2e;padding:30px;margin:20px auto;max-width:700px;border-radius:15px;box-shadow:0 0 30px #00ff9d44}
   </style>
 </head>
 <body>
   <h1>$DIELON Fantasy</h1>
-  <button onclick="connect()">Connect Wallet</button>
-  <button onclick="create()">Create Contest</button>
-  <p id="status"></p>
-  <p id="error"></p>
+  <div class="card">
+    <button onclick="connect()">Connect Wallet</button>
+    <button onclick="create()">Create Contest</button>
+    <p id="status"></p>
+    <p id="error"></p>
+  </div>
 
   <script>
-    const contractAddress = "0x5E9563957A2E317BD07204f1C62EE9F81d83a0c6";
+    const contractAddress = "0x735FD4E8f0caDE07Bc72fB3Ea74Dc3c67D865D41";
     const BASE_CHAIN_ID = "0x2105";
-    const CREATE_CONTEST_SELECTOR = "0x9b5f2b6e";
 
     let account;
 
     async function connect() {
-      document.getElementById("error").textContent = "";
-      document.getElementById("status").textContent = "Connecting...";
-
-      if (!window.ethereum) {
-        document.getElementById("error").textContent = "Install MetaMask or Coinbase Wallet!";
-        return;
-      }
-
+      if (!window.ethereum) return document.getElementById("error").textContent = "Install wallet!";
       try {
         const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
         account = accounts[0];
-
-        try {
-          await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: BASE_CHAIN_ID }]
-          });
-        } catch (switchError) {
-          if (switchError.code === 4902) {
-            await window.ethereum.request({
-              method: 'wallet_addEthereumChain',
-              params: [{
-                chainId: BASE_CHAIN_ID,
-                chainName: 'Base Mainnet',
-                nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-                rpcUrls: ['https://mainnet.base.org'],
-                blockExplorerUrls: ['https://basescan.org']
-              }]
-            });
-          } else {
-            throw switchError;
-          }
-        }
-
-        document.getElementById("status").textContent = "Connected: " + account.slice(0,10) + "... on Base!";
-      } catch (err) {
-        document.getElementById("error").textContent = "Error: " + err.message;
-      }
+        await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BASE_CHAIN_ID }] });
+        document.getElementById("status").textContent = "Connected: " + account.slice(0,10) + "... Ready!";
+      } catch (e) { document.getElementById("error").textContent = e.message; }
     }
 
     async function create() {
-      if (!account) return document.getElementById("error").textContent = "Connect wallet first!";
-
+      if (!account) return alert("Connect first!");
       const name = prompt("Contest name", "NFL Week 12") || "Contest";
-      if (name === null) return;
-      const feeStr = prompt("Entry fee in $DIELON", "100") || "100";
-      if (feeStr === null) return;
-      const fee = Number(feeStr);
-      const capStr = prompt("Salary cap", "50000") || "50000";
-      if (capStr === null) return;
-      const cap = Number(capStr);
-      const maxStr = prompt("Max players", "50") || "50";
-      if (maxStr === null) return;
-      const max = Number(maxStr);
-      const hoursStr = prompt("Hours until end", "48") || "48";
-      if (hoursStr === null) return;
-      const hours = Number(hoursStr);
-      const end = Math.floor(Date.now()/1000) + (hours * 3600);
+      const fee = prompt("Entry fee", "100");
+      const cap = prompt("Salary cap", "50000");
+      const max = prompt("Max players", "50");
+      const hours = prompt("Hours until end", "48");
+      const end = Math.floor(Date.now()/1000) + (Number(hours)*3600);
 
-      // Encode data for createContest
-      const nameBytes = new TextEncoder().encode(name);
-      const nameHex = Array.from(nameBytes).map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0');
-      const feeWei = (BigInt(fee) * 10n**18n).toString(16).padStart(64, '0');
-      const capHex = Number(cap).toString(16).padStart(64, '0');
-      const maxHex = Number(max).toString(16).padStart(64, '0');
-      const endHex = end.toString(16).padStart(64, '0');
-      const data = CREATE_CONTEST_SELECTOR + '00'.padEnd(64, '0') + feeWei + capHex + maxHex + endHex + nameHex;
+      const feeWei = (BigInt(fee)*10n**18n).toString(16).padStart(64,'0');
+      const data = "0x9b5f2b6e" + "0000000000000000000000000000000000000000000000000000000000000020" + feeWei + 
+                   Number(cap).toString(16).padStart(64,'0') + Number(max).toString(16).padStart(64,'0') + 
+                   end.toString(16).padStart(64,'0') + 
+                   (name.length*2).toString(16).padStart(64,'0') + 
+                   Array.from(new TextEncoder().encode(name)).map(b=>b.toString(16).padStart(2,'0')).join('');
 
       try {
-        document.getElementById("status").textContent = "Estimating gas...";
-        // Gas estimation to confirm it's a contract call (fixes Coinbase error)
-        await window.ethereum.request({
-          method: 'eth_estimateGas',
-          params: [{
-            from: account,
-            to: contractAddress,
-            data: '0x' + data.slice(2)
-          }]
-        });
-
-        document.getElementById("status").textContent = "Approve in wallet...";
         const tx = await window.ethereum.request({
-          method: 'eth_sendTransaction',
-          params: [{
-            from: account,
-            to: contractAddress,
-            data: '0x' + data.slice(2)
-          }]
+          method: "eth_sendTransaction",
+          params: [{ from: account, to: contractAddress, data }]
         });
         document.getElementById("status").textContent = "Contest created! Tx: " + tx;
-      } catch (err) {
-        document.getElementById("error").textContent = "Error: " + err.message;
-      }
+      } catch (e) { document.getElementById("error").textContent = e.message; }
     }
   </script>
 </body>
